@@ -1,0 +1,43 @@
+{
+  "name": "gcl-ui",
+  "version": "0.1.0",
+  "description": "A friendly web UI wrapper for gitlab-ci-local: visualize, run and debug your pipelines locally",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "gcl-ui": "bin/gcl-ui.js"
+  },
+  "files": [
+    "bin",
+    "server",
+    "web/dist"
+  ],
+  "scripts": {
+    "build": "vite build --config web/vite.config.js",
+    "dev": "node bin/gcl-ui.js --dev --no-open",
+    "start": "node bin/gcl-ui.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "gitlab-ci-local": "^4.59.0",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@codemirror/lang-yaml": "^6.1.2",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.43.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "codemirror": "^6.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^5.4.11"
+  }
+}
