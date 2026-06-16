@@ -85,11 +85,13 @@ if (dev || !hasDist) {
       appType: "spa",
     });
     // mount vite in front of the express handler at the http level:
-    // /api and /ws go to express, everything else to vite
+    // /api, /ws and the static artifact trees go to express, everything else to vite
+    const toExpress = (url) =>
+      url?.startsWith("/api/") || url === "/ws" || url?.startsWith("/artifact/") || url?.startsWith("/joblog/");
     const listeners = server.listeners("request").slice();
     server.removeAllListeners("request");
     server.on("request", (req, res) => {
-      if (req.url?.startsWith("/api/") || req.url === "/ws") {
+      if (toExpress(req.url)) {
         for (const l of listeners) l(req, res);
       } else {
         vite.middlewares(req, res, () => {

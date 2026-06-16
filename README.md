@@ -37,6 +37,9 @@ Live status while runs are in progress.
 ### Running jobs
 - **▶ Run pipeline** runs everything; the **play button on a job card** runs just that job
   (with `--needs` by default — configurable).
+- **Run a whole stage** with the ▶ button on any stage header (`--stage <name>`).
+- **Run several jobs at once**: tick the ☐ on each card (or Ctrl/⌘-click cards) and hit
+  **▶ Run N jobs** in the floating selection bar; "select all" is one click away.
 - **Jobs whose rules don't match** (`when: never`) are shown dashed with a `rules: never`
   badge. Their play button becomes **⚡ force run** — gitlab-ci-local runs explicitly named
   jobs regardless of rules, and the UI makes that explicit instead of hiding it.
@@ -63,10 +66,14 @@ Live status while runs are in progress.
 ### Output, artifacts, diffs
 - **Live job output** streams into the Output tab with ANSI colors, command/section
   highlighting, per-job filter chips with live status, text search, follow-mode and run
-  history.
+  history. Toggle **per-job** mode for a grid of independent, live-following panes — one
+  per job (and one per child pipeline), each with its own status, duration and scroll.
 - **Artifacts browser**: tree of `.gitlab-ci-local/artifacts/<job>/`, with in-browser
-  preview — syntax highlighting for yaml/json/shell/logs, image preview, and a **git diff
-  viewer** for `.patch`/`.diff` artifacts (per-file collapsible hunks, +/− line numbers).
+  preview — syntax highlighting for yaml/json/shell/logs, image preview, a **git diff
+  viewer** for `.patch`/`.diff` artifacts (per-file collapsible hunks, +/− line numbers),
+  and **inline HTML rendering**: `.html` artifacts render in a sandboxed iframe served from
+  a real static path, so relative assets resolve and their JavaScript runs exactly as if
+  opened standalone (with rendered/source toggle and an open-in-new-tab button).
 - **⧉ copy path** buttons everywhere: artifact files, artifact folders, job output logs
   (`.gitlab-ci-local/output/<job>.log`), and the equivalent CLI command for any run.
 
@@ -82,8 +89,13 @@ start a session:
 - **failing steps pause automatically** for post-mortem inspection;
 - the editor highlights the executing step, and the paused line in purple.
 
-Debug sessions run with shell-executor semantics on your machine (CI variables, global +
-job + your variables exported), even for jobs that declare an `image`.
+**Where it runs.** By default debug runs with shell-executor semantics on your machine
+(CI variables, global + job + your variables exported). For jobs that declare an `image`,
+flip **🐳 in container** (on by default when docker/podman is detected): gcl-ui starts the
+image, bind-mounts your project at its real path, and runs the breakpoint shell *inside the
+container* — so variables, tools and filesystem are the container's. The generated driver
+is deliberately POSIX-sh and needs only `/bin/sh` in the image (no bash/extra tooling), so
+it works on minimal images. Set `GCL_UI_CONTAINER_EXECUTABLE` to force a specific runtime.
 
 ### Triggered (child) pipelines
 - Running the full pipeline uses gitlab-ci-local's native downstream support; child job

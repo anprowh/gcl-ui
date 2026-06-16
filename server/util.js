@@ -87,6 +87,27 @@ export function findGclBin() {
   );
 }
 
+// Find a container runtime for in-container debugging. Honors an explicit
+// override, otherwise prefers docker then podman.
+let cachedRuntime;
+export function findContainerRuntime() {
+  if (cachedRuntime !== undefined) return cachedRuntime;
+  const probe = (bin) => {
+    try {
+      execFileSync(bin, ["--version"], { stdio: ["ignore", "ignore", "ignore"] });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const override = process.env.GCL_UI_CONTAINER_EXECUTABLE;
+  if (override) return (cachedRuntime = probe(override) ? override : null);
+  for (const bin of ["docker", "podman"]) {
+    if (probe(bin)) return (cachedRuntime = bin);
+  }
+  return (cachedRuntime = null);
+}
+
 export function isProbablyText(buf) {
   const n = Math.min(buf.length, 4096);
   if (n === 0) return true;

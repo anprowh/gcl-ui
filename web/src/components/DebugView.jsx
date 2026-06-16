@@ -51,13 +51,18 @@ export default function DebugView() {
   const sessions = useStore((s) => s.debugSessions);
   const activeDebugId = useStore((s) => s.activeDebugId);
   const debugJobHint = useStore((s) => s.ui.debugJob);
+  const containerRuntime = useStore((s) => s.debugCaps.containerRuntime);
   const s = effectiveSettings({ settings });
 
   const debuggable = (pipeline?.jobs || []).filter((j) => j.script?.length || j.beforeScript?.length);
   const [jobName, setJobName] = useState(null);
   const [focusToken, setFocusToken] = useState(0);
+  const [useContainer, setUseContainer] = useState(null); // null = auto
   const effectiveJob = debugJobHint || jobName || debuggable[0]?.name || null;
   const job = debuggable.find((j) => j.name === effectiveJob);
+  // default: run in container when the job has an image and a runtime exists
+  const canContainer = !!(job?.image && containerRuntime);
+  const containerOn = useContainer === null ? canContainer : useContainer && canContainer;
 
   const editorHost = useRef(null);
   const viewRef = useRef(null);
@@ -186,7 +191,7 @@ export default function DebugView() {
   }
 
   const start = async () => {
-    await startDebug(job, breakpoints);
+    await startDebug(job, breakpoints, { container: containerOn });
     setFocusToken((t) => t + 1);
   };
 
@@ -211,7 +216,19 @@ export default function DebugView() {
         <span className="muted small">
           {breakpoints.length ? `${breakpoints.length} breakpoint${breakpoints.length > 1 ? "s" : ""}` : "click ○ in the gutter to set breakpoints"}
         </span>
-        {job?.image && <span className="job-tag warn" title="Debug sessions run on your shell, not in docker">⚠ runs on host shell (job declares image)</span>}
+        {canContainer && (
+          <label className="container-toggle" title={`Run the job in its image (${job.image}) via ${containerRuntime}. The project is bind-mounted and the debug driver is POSIX-sh so it works on minimal images.`}>
+            <input type="checkbox" checked={containerOn} disabled={!!liveSession} onChange={(e) => setUseContainer(e.target.checked)} />
+            <span>🐳 in container</span>
+          </label>
+        )}
+        {containerOn && <span className="job-tag" title={job.image}>{containerRuntime} · {job.image}</span>}
+        {job?.image && !containerRuntime && (
+          <span className="job-tag warn" title="No docker/podman found — the script runs on the host shell instead">⚠ no runtime · host shell</span>
+        )}
+        {job?.image && containerRuntime && !containerOn && (
+          <span className="job-tag warn" title="Toggle ‘in container’ to run inside the image">⚠ host shell</span>
+        )}
         <div className="topbar-spacer" />
         {liveSession ? (
           <>
@@ -245,9 +262,10 @@ export default function DebugView() {
             <div className="panel-empty small">
               <p><b>How it works</b></p>
               <p>① click ○ next to a script step to set a breakpoint</p>
-              <p>② start the session — the job runs right here</p>
+              <p>② start the session — the job runs right here{canContainer ? ", inside its container image" : ""}</p>
               <p>③ at a breakpoint this terminal <i>is</i> the job's shell: check variables (<code>echo $VAR</code>), change them, then <code>:c</code> to continue or <code>:q</code> to abort</p>
               <p>④ failing steps also pause automatically, so you can post-mortem</p>
+              {canContainer && <p className="muted">🐳 container mode bind-mounts your project and uses only <code>/bin/sh</code>, so it works even on minimal images.</p>}
             </div>
           )}
         </div>

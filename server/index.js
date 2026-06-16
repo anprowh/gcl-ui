@@ -190,14 +190,22 @@ export function createServer(cwd, { staticDir = null, viteDev = false } = {}) {
     }
   });
 
+  // Serve artifacts and job logs as plain static trees so that HTML artifacts
+  // render with a real document context: relative URLs (./style.css, scripts,
+  // images) resolve correctly and their JavaScript runs as if opened directly.
+  // Used as the src of a sandboxed <iframe> in the artifacts viewer.
+  const staticOpts = { index: false, dotfiles: "allow", redirect: false };
+  app.use("/artifact", express.static(ROOTS().artifacts, staticOpts));
+  app.use("/joblog", express.static(ROOTS().output, staticOpts));
+
   // ---- debug ---------------------------------------------------------------
-  app.get("/api/debug", (req, res) => ok(res, debug.list()));
+  app.get("/api/debug", (req, res) => ok(res, { sessions: debug.list(), ...debug.capabilities() }));
   app.post("/api/debug/start", (req, res) => {
     try {
-      const { job, breakpoints = [], variables = {}, cols, rows } = req.body || {};
+      const { job, breakpoints = [], variables = {}, cols, rows, container = false } = req.body || {};
       if (!job?.name) return fail(res, "job object required", 400);
       const effVars = effectiveVariables(cwd, variables);
-      ok(res, debug.start({ job, breakpoints, variables: effVars, cols, rows }));
+      ok(res, debug.start({ job, breakpoints, variables: effVars, cols, rows, container }));
     } catch (e) {
       fail(res, e, 400);
     }
