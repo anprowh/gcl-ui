@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { useStore, setDockTab, setState } from "./store.js";
+import { useStore, setDockTab, setState, startRun, clearSelection, setSelection } from "./store.js";
 import TopBar from "./components/TopBar.jsx";
 import PipelineGraph from "./components/PipelineGraph.jsx";
 import JobPanel from "./components/JobPanel.jsx";
@@ -7,6 +7,40 @@ import OutputView from "./components/OutputView.jsx";
 import ArtifactsView from "./components/ArtifactsView.jsx";
 import VariablesView from "./components/VariablesView.jsx";
 import DebugView from "./components/DebugView.jsx";
+
+function SelectionBar() {
+  const selection = useStore((s) => s.ui.selection);
+  const settings = useStore((s) => s.settings);
+  const pipeline = useStore((s) => s.pipeline);
+  const needs = settings?.needs;
+  if (!selection.length) return null;
+  const allJobs = (pipeline?.jobs || []).filter((j) => !j.trigger).map((j) => j.name);
+  return (
+    <div className="selection-bar">
+      <span className="selection-count">{selection.length} selected</span>
+      <span className="selection-names" title={selection.join(", ")}>
+        {selection.join(", ")}
+      </span>
+      <div className="topbar-spacer" />
+      <button className="btn" title="Select every job" onClick={() => setSelection(allJobs)}>
+        select all
+      </button>
+      <button
+        className="btn primary"
+        onClick={() => {
+          startRun({ jobs: selection, label: `${selection.length} jobs` });
+          clearSelection();
+        }}
+        title={`Run these ${selection.length} jobs together${needs ? " (+ their needs)" : ""}`}
+      >
+        ▶ Run {selection.length} job{selection.length > 1 ? "s" : ""}
+      </button>
+      <button className="btn" onClick={() => clearSelection()}>
+        ✕ clear
+      </button>
+    </div>
+  );
+}
 
 const TABS = [
   { id: "output", label: "Output", icon: "≣" },
@@ -59,6 +93,7 @@ export default function App() {
       )}
       <div className="graph-area">
         <PipelineGraph />
+        <SelectionBar />
       </div>
       {ui.dockOpen && (
         <>

@@ -13,12 +13,15 @@ let state = {
   activeRunId: null,
   debugSessions: [],
   activeDebugId: null,
+  debugCaps: { containerRuntime: null },
   artifacts: { root: "", jobs: {} },
   logs: { root: "", logs: [] },
   ui: {
     selectedJob: null,
+    selection: [], // multi-select of job names for batch runs
     dockTab: "output",
     dockOpen: true,
+    outputSplit: false,
     toast: null,
   },
   wsConnected: false,
@@ -103,12 +106,18 @@ export function updateSettings(patch) {
 }
 
 export async function loadProject() {
-  const [project, variables, settings] = await Promise.all([
+  const [project, variables, settings, debug] = await Promise.all([
     api("/api/project"),
     api("/api/variables"),
     api("/api/settings"),
+    api("/api/debug").catch(() => ({ containerRuntime: null })),
   ]);
-  setState({ project, variables, settings: { ...DEFAULT_SETTINGS, ...settings } });
+  setState({
+    project,
+    variables,
+    settings: { ...DEFAULT_SETTINGS, ...settings },
+    debugCaps: { containerRuntime: debug.containerRuntime || null },
+  });
 }
 
 export async function loadPipeline() {
@@ -158,15 +167,24 @@ export async function loadArtifacts() {
 }
 
 // ---- runs --------------------------------------------------------------------
-export async function startRun({ jobs = null, label = null, file = null, parentRunId = null, triggerJob = null, overrides = {} } = {}) {
+export async function startRun({
+  jobs = null,
+  stage = null,
+  label = null,
+  file = null,
+  parentRunId = null,
+  triggerJob = null,
+  overrides = {},
+} = {}) {
   const s = effectiveSettings();
   const p = state.pipeline;
   const knownJobs = p?.jobs?.map((j) => j.name) || [];
   let jobList = jobs;
-  if (!jobList && s.forceRules && p?.jobs) {
+  if (!jobList && !stage && s.forceRules && p?.jobs) {
     // force rules on a full pipeline run: name every job explicitly
     jobList = p.jobs.filter((j) => !j.trigger).map((j) => j.name);
   }
+  if (stage) overrides = { ...overrides, stage };
   try {
     const run = await api("/api/run", {
       method: "POST",
@@ -208,7 +226,7 @@ export function cancelRun(id) {
 }
 
 // ---- debug --------------------------------------------------------------------
-export async function startDebug(job, breakpoints, dims) {
+export async function startDebug(job, breakpoints, { container = false, ...dims } = {}) {
   try {
     // merge pipeline-level yaml variables under the job's own ones
     const globalVars = state.pipeline?.globalVariables || {};
@@ -217,6 +235,7 @@ export async function startDebug(job, breakpoints, dims) {
       body: {
         job: { ...job, variables: { ...globalVars, ...(job.variables || {}) } },
         breakpoints,
+        container,
         variables: effectiveSettings().sessionVars,
         cols: dims?.cols,
         rows: dims?.rows,
@@ -355,4 +374,19 @@ export function selectJob(name) {
 
 export function setDockTab(tab) {
   setState({ ui: { ...state.ui, dockTab: tab, dockOpen: true } });
+}
+
+// ---- multi-select for batch runs ---------------------------------------------
+export function toggleSelect(name) {
+  const cur = state.ui.selection;
+  const next = cur.includes(name) ? cur.filter((n) => n !== name) : [...cur, name];
+  setState({ ui: { ...state.ui, selection: next } });
+}
+
+export function setSelection(names) {
+  setState({ ui: { ...state.ui, selection: names } });
+}
+
+export function clearSelection() {
+  setState({ ui: { ...state.ui, selection: [] } });
 }

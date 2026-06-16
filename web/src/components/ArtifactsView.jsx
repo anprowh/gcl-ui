@@ -64,17 +64,26 @@ function DirRow({ name, node, prefix, depth, onOpen, openPath }) {
 
 const IMG_EXT = ["png", "jpg", "jpeg", "gif", "svg", "webp", "bmp", "ico"];
 
+// encode each path segment but keep the slashes, so /artifact/<job>/a b/c.html works
+function encodePath(p) {
+  return p.split("/").map(encodeURIComponent).join("/");
+}
+
 function Preview({ file, jobName, root }) {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
+  const [showSource, setShowSource] = useState(false);
   const isLog = file?.base === "output";
   const relPath = file ? (isLog ? file.path : jobName + "/" + file.path) : null;
+  const ext = file?.name.split(".").pop()?.toLowerCase();
+  const isHtml = ext === "html" || ext === "htm";
+  const staticUrl = file ? (isLog ? "/joblog/" : "/artifact/") + encodePath(relPath) : null;
 
   useEffect(() => {
     setData(null);
     setErr(null);
+    setShowSource(false);
     if (!file) return;
-    const ext = file.name.split(".").pop()?.toLowerCase();
     if (IMG_EXT.includes(ext)) {
       setData({ image: `/api/file/raw?base=${file.base || "artifacts"}&path=${encodeURIComponent(relPath)}` });
       return;
@@ -84,14 +93,26 @@ function Preview({ file, jobName, root }) {
       .catch((e) => setErr(e.message));
   }, [file?.path, jobName]);
 
-  if (!file) return <div className="panel-empty">Pick a file on the left — text, diffs and images preview right here.</div>;
+  if (!file) return <div className="panel-empty">Pick a file on the left — text, diffs, HTML and images preview right here.</div>;
   if (err) return <div className="panel-empty">⚠ {err}</div>;
   if (!data) return <div className="panel-empty">loading…</div>;
 
   const absPath = data.path || `${root}/${relPath}`;
 
   let body;
-  if (data.image) {
+  if (isHtml && !showSource) {
+    // Render in a sandboxed iframe pointed at the statically-served file so the
+    // page gets its own document context, relative assets resolve, and its JS
+    // runs — as if the file were opened on its own.
+    body = (
+      <iframe
+        className="html-frame"
+        src={staticUrl}
+        title={file.name}
+        sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-modals allow-downloads"
+      />
+    );
+  } else if (data.image) {
     body = <div className="img-preview"><img src={data.image} alt={file.name} /></div>;
   } else if (data.binary) {
     body = (
@@ -143,6 +164,21 @@ function Preview({ file, jobName, root }) {
         {data.size !== undefined && <span className="muted">{fmtSize(data.size)}</span>}
         {data.truncated && <span className="job-tag warn">truncated preview</span>}
         <div className="topbar-spacer" />
+        {isHtml && (
+          <>
+            <div className="seg-toggle" title="Render the page vs view its source">
+              <button className={"seg" + (!showSource ? " active" : "")} onClick={() => setShowSource(false)}>
+                ▶ rendered
+              </button>
+              <button className={"seg" + (showSource ? " active" : "")} onClick={() => setShowSource(true)}>
+                source
+              </button>
+            </div>
+            <a className="btn" href={staticUrl} target="_blank" rel="noreferrer" title="Open this page in a new browser tab">
+              ↗ open tab
+            </a>
+          </>
+        )}
         <button className="btn" title={absPath} onClick={() => copyText(absPath, "Path")}>
           ⧉ copy path
         </button>

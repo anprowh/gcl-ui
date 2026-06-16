@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { useStore, selectJob, startRun } from "../store.js";
+import { useStore, selectJob, startRun, toggleSelect } from "../store.js";
 
 const COL_W = 264;
 const CARD_W = 228;
@@ -26,6 +26,7 @@ export default function PipelineGraph({ model = null, run = undefined, compact =
   const runs = useStore((s) => s.runs);
   const activeRunId = useStore((s) => s.activeRunId);
   const selected = useStore((s) => s.ui.selectedJob);
+  const selection = useStore((s) => s.ui.selection);
   const [hover, setHover] = useState(null);
 
   const pipeline = model || globalPipeline;
@@ -120,8 +121,20 @@ export default function PipelineGraph({ model = null, run = undefined, compact =
         </svg>
         {layout.cols.map(([stage], si) => (
           <div key={stage} className="stage-header" style={{ left: PAD + si * COL_W, top: PAD, width: CARD_W }}>
-            {stage}
+            <span className="stage-name">{stage}</span>
             <span className="stage-count">{layout.cols[si][1].length}</span>
+            {!compact && (
+              <button
+                className="stage-run"
+                title={`Run all jobs in stage "${stage}" (gitlab-ci-local --stage ${stage})`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  startRun({ stage, label: `stage: ${stage}` });
+                }}
+              >
+                ▶
+              </button>
+            )}
           </div>
         ))}
         {[...layout.pos.values()].map(({ x, y, job }) => {
@@ -130,6 +143,7 @@ export default function PipelineGraph({ model = null, run = undefined, compact =
           const manual = job.when === "manual";
           const dim = related && !related.has(job.name);
           const childStates = activeRun?.childJobs?.[job.name];
+          const checked = selection.includes(job.name);
           return (
             <div
               key={job.name}
@@ -138,13 +152,29 @@ export default function PipelineGraph({ model = null, run = undefined, compact =
                 (st ? " st-" + st : "") +
                 (never ? " never" : "") +
                 (dim ? " dim" : "") +
+                (checked ? " checked" : "") +
                 (selected === job.name ? " selected" : "")
               }
               style={{ left: x, top: y, width: CARD_W, height: CARD_H }}
               onMouseEnter={() => setHover(job.name)}
               onMouseLeave={() => setHover(null)}
-              onClick={() => handleSelect(job.name)}
+              onClick={(e) => {
+                if (e.metaKey || e.ctrlKey) toggleSelect(job.name);
+                else handleSelect(job.name);
+              }}
             >
+              {!compact && (
+                <button
+                  className={"job-check" + (checked ? " on" : "")}
+                  title={checked ? "Remove from selection" : "Add to multi-run selection (or Ctrl/⌘-click the card)"}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggleSelect(job.name);
+                  }}
+                >
+                  {checked ? "☑" : "☐"}
+                </button>
+              )}
               <div className={"job-status" + (st ? " st-" + st : never ? " st-never" : manual ? " st-manual" : "")}>
                 {st ? STATUS_ICONS[st] : never ? "⃠" : manual ? "▶" : "○"}
               </div>
