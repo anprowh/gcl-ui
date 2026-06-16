@@ -565,3 +565,16 @@ h2, h3 { margin: 0; font-weight: 600; }
   border-radius: 6px; background: var(--bg3); white-space: nowrap;
 }
 .container-toggle input { margin: 0; }
+
+/* raw output view */
+.output-raw {
+  flex: 1; width: 100%; resize: none; border: none; outline: none;
+  background: var(--bg); color: var(--text); padding: 10px 12px;
+  font-family: var(--mono); font-size: 12px; line-height: 1.5; white-space: pre;
+  overflow: auto;
+}
+.raw-only-toggle {
+  display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
+  font-size: 12px; color: var(--text-dim); white-space: nowrap;
+}
+.raw-only-toggle input { margin: 0; }

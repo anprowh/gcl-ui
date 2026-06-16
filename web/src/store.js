@@ -21,7 +21,8 @@ let state = {
     selection: [], // multi-select of job names for batch runs
     dockTab: "output",
     dockOpen: true,
-    outputSplit: false,
+    outputMode: "combined", // combined | split | raw
+    rawOutputOnly: false, // raw mode: show only program stdout (drop $ commands & meta)
     toast: null,
   },
   wsConnected: false,

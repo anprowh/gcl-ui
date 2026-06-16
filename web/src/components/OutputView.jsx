@@ -71,11 +71,15 @@ export default function OutputView() {
   const runs = useStore((s) => s.runs);
   const activeRunId = useStore((s) => s.activeRunId);
   const runLines = useStore((s) => s.runLines);
-  const split = useStore((s) => s.ui.outputSplit);
   const [jobFilter, setJobFilter] = useState(null);
   const [search, setSearch] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
   const bodyRef = useRef(null);
+
+  const mode = useStore((s) => s.ui.outputMode);
+  const rawOutputOnly = useStore((s) => s.ui.rawOutputOnly);
+  const split = mode === "split";
+  const raw = mode === "raw";
 
   const run = runs.find((r) => r.id === activeRunId) || runs[0];
   const lines = (run && runLines[run.id]) || [];
@@ -97,6 +101,28 @@ export default function OutputView() {
     if (search) ls = ls.filter(matchesSearch);
     return ls;
   }, [lines, jobFilter, search]);
+
+  // raw-mode text: the same lines with the "<job> " prefix (and gcl's $/>
+  // markers) removed, ANSI stripped — ready to copy/paste elsewhere.
+  const rawText = useMemo(() => {
+    if (!raw) return "";
+    const out = [];
+    for (const l of filtered) {
+      const payload = l.payload != null ? stripAnsi(l.payload) : null;
+      if (l.kind === "out") {
+        out.push(payload != null ? payload.replace(/^> ?/, "") : stripAnsi(l.raw));
+      } else if (rawOutputOnly) {
+        continue; // output-only: skip commands, meta, PASS/FAIL, banners
+      } else if (l.kind === "cmd" || l.kind === "starting" || l.kind === "finished" || l.kind === "artifacts" || l.kind === "job-meta") {
+        out.push(payload != null ? payload : stripAnsi(l.raw));
+      } else if (l.kind === "pass" || l.kind === "fail") {
+        out.push(`${l.kind.toUpperCase()} ${l.job || ""}`.trim());
+      } else {
+        out.push(stripAnsi(l.raw)); // pipeline meta (no job prefix anyway)
+      }
+    }
+    return out.join("\n");
+  }, [raw, rawOutputOnly, filtered]);
 
   // split-mode buckets: one per top-level job, one per child-pipeline group
   const panes = useMemo(() => {
@@ -171,12 +197,15 @@ export default function OutputView() {
         <button className="btn" title="Copy the full gitlab-ci-local command of this run" onClick={() => copyText(run.argv, "Command")}>
           ⧉ cmd
         </button>
-        <div className="seg-toggle" title="Combined log vs one live pane per job">
-          <button className={"seg" + (!split ? " active" : "")} onClick={() => setState((s) => ({ ui: { ...s.ui, outputSplit: false } }))}>
+        <div className="seg-toggle" title="Combined log · one live pane per job · raw prefix-free text">
+          <button className={"seg" + (mode === "combined" ? " active" : "")} onClick={() => setState((s) => ({ ui: { ...s.ui, outputMode: "combined" } }))}>
             ≣ combined
           </button>
-          <button className={"seg" + (split ? " active" : "")} onClick={() => setState((s) => ({ ui: { ...s.ui, outputSplit: true } }))}>
+          <button className={"seg" + (mode === "split" ? " active" : "")} onClick={() => setState((s) => ({ ui: { ...s.ui, outputMode: "split" } }))}>
             ▦ per-job
+          </button>
+          <button className={"seg" + (mode === "raw" ? " active" : "")} onClick={() => setState((s) => ({ ui: { ...s.ui, outputMode: "raw" } }))} title="Plain text with the job-name prefix removed — easy to copy">
+            ⌁ raw
           </button>
         </div>
         {!split && (
@@ -210,14 +239,42 @@ export default function OutputView() {
           onChange={(e) => setSearch(e.target.value)}
           spellCheck={false}
         />
-        {!split && (
+        {raw && (
+          <>
+            <label className="raw-only-toggle" title="Show only program output (drop $ commands, PASS/FAIL and gcl banners)">
+              <input
+                type="checkbox"
+                checked={rawOutputOnly}
+                onChange={(e) => setState((s) => ({ ui: { ...s.ui, rawOutputOnly: e.target.checked } }))}
+              />
+              <span>output only</span>
+            </label>
+            <button
+              className="btn primary"
+              title={jobFilter ? `Copy raw output of ${jobFilter}` : "Copy all raw output (tip: click a job chip to isolate one)"}
+              onClick={() => copyText(rawText, "Raw output")}
+            >
+              ⧉ copy{jobFilter ? ` ${jobFilter}` : " all"}
+            </button>
+          </>
+        )}
+        {mode === "combined" && (
           <button className={"btn" + (autoScroll ? " active" : "")} title="Follow output" onClick={() => setAutoScroll(!autoScroll)}>
             ⇣ follow
           </button>
         )}
       </div>
 
-      {split ? (
+      {raw ? (
+        <textarea
+          className="output-raw"
+          readOnly
+          spellCheck={false}
+          wrap="off"
+          value={rawText || (running ? "waiting for output…" : "no output")}
+          onFocus={(e) => e.target.select()}
+        />
+      ) : split ? (
         <div className="output-split">
           {panes.length === 0 && <div className="panel-empty">no jobs in this run yet…</div>}
           {panes.map((p) => (
