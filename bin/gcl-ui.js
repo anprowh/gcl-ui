@@ -64,7 +64,13 @@ function openBrowser(url) {
   const cmd =
     process.platform === "darwin" ? ["open", url] : process.platform === "win32" ? ["cmd", "/c", "start", "", url] : ["xdg-open", url];
   try {
-    spawn(cmd[0], cmd.slice(1), { stdio: "ignore", detached: true }).unref();
+    const child = spawn(cmd[0], cmd.slice(1), { stdio: "ignore", detached: true });
+    // a missing opener (e.g. no xdg-open installed) surfaces as an async
+    // 'error' event rather than a throw — swallow it so we don't crash.
+    child.once("error", () => {
+      console.log(`  (couldn't open a browser automatically — visit the URL above)`);
+    });
+    child.unref();
   } catch {
     /* best effort */
   }
