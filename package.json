@@ -15,7 +15,9 @@
   "scripts": {
     "build": "vite build --config web/vite.config.js",
     "dev": "node bin/gcl-ui.js --dev --no-open",
-    "start": "node bin/gcl-ui.js"
+    "start": "node bin/gcl-ui.js",
+    "build:exe": "node scripts/build-exe.mjs",
+    "build:exe:all": "node scripts/build-exe.mjs all"
   },
   "engines": {
     "node": ">=18"

@@ -9,6 +9,7 @@ import { RunManager } from "./runs.js";
 import { DebugManager } from "./debug.js";
 import { getVariables, setVariables, effectiveVariables, getSettings, setSettings } from "./variables.js";
 import { findGclBin, isProbablyText, walkDir, GLOBAL_DIR, projectDir } from "./util.js";
+import { assets as embeddedAssets } from "./embedded-assets.js";
 
 export function createServer(cwd, { staticDir = null, viteDev = false } = {}) {
   const app = express();
@@ -216,7 +217,21 @@ export function createServer(cwd, { staticDir = null, viteDev = false } = {}) {
   app.delete("/api/debug/:id", (req, res) => ok(res, debug.dispose(req.params.id)));
 
   // ---- static frontend -------------------------------------------------------
-  if (staticDir) {
+  const embeddedKeys = Object.keys(embeddedAssets);
+  if (embeddedKeys.length) {
+    // serve the UI from the in-memory bundle (single-file executable mode)
+    const decoded = {};
+    const sendAsset = (res, key) => {
+      const a = embeddedAssets[key];
+      if (!decoded[key]) decoded[key] = Buffer.from(a.b64, "base64");
+      res.type(a.type).send(decoded[key]);
+    };
+    app.get(/^\/(?!api|ws|artifact|joblog).*/, (req, res) => {
+      const p = req.path === "/" ? "/index.html" : req.path;
+      if (embeddedAssets[p]) return sendAsset(res, p);
+      sendAsset(res, "/index.html"); // SPA fallback
+    });
+  } else if (staticDir) {
     app.use(express.static(staticDir));
     app.get(/^\/(?!api|ws).*/, (req, res) => res.sendFile(path.join(staticDir, "index.html")));
   } else if (viteDev) {
