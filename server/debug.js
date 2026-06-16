@@ -1,19 +1,108 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { projectDir, findContainerRuntime } from "./util.js";
 
-// node-pty is a native addon and is only needed for debug terminals. Load it
-// lazily so the rest of gcl-ui (graph, runs, artifacts…) works even in a
-// packaged single-file binary where the native addon may be unavailable.
+// Debug terminals need a PTY. We support two backends and pick automatically:
+//
+//   - node-pty (native addon): used when running under Node (source / npm
+//     install). Full featured, including live resize.
+//   - `script` (util-linux): used in the packaged single-file binary, which
+//     runs under the Bun runtime where the node-pty native addon is unreliable.
+//     `script` provides a real PTY as an ordinary child process over pipes,
+//     which the Bun runtime handles dependably. Linux-only (matches the binary's
+//     target); initial size is honored, live resize is a no-op.
+//
+// Either way the rest of gcl-ui works even if no PTY backend is available.
+const require = createRequire(import.meta.url);
+const isBun = typeof globalThis.Bun !== "undefined" || !!process.versions?.bun;
+
 let pty = null;
 let ptyError = null;
-try {
-  pty = createRequire(import.meta.url)("node-pty");
-} catch (e) {
-  ptyError = e;
+if (!isBun) {
+  try {
+    pty = require("node-pty");
+  } catch (e) {
+    ptyError = e;
+  }
+}
+
+const scriptAvailable = (() => {
+  try {
+    execFileSync("script", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+const debugAvailable = !!pty || scriptAvailable;
+
+function shq(s) {
+  return "'" + String(s).replace(/'/g, "'\\''") + "'";
+}
+
+// Spawn argv in a PTY, returning a small uniform handle. Prefers node-pty;
+// falls back to util-linux `script`.
+function startPty(argv, { cwd, env, cols = 120, rows = 30 }) {
+  if (pty) {
+    const term = pty.spawn(argv[0], argv.slice(1), { name: "xterm-256color", cols, rows, cwd, env });
+    return {
+      backend: "node-pty",
+      pid: term.pid,
+      onData: (cb) => term.onData(cb),
+      onExit: (cb) => term.onExit(({ exitCode }) => cb(exitCode)),
+      write: (d) => term.write(d),
+      resize: (c, r) => {
+        try {
+          term.resize(c, r);
+        } catch {}
+      },
+      kill: (s) => {
+        try {
+          term.kill(s);
+        } catch {}
+      },
+    };
+  }
+  // `script -q -e -c CMD /dev/null`: -q quiet, -e propagate child exit code.
+  // We set the initial window size with stty inside the PTY before exec'ing.
+  const cmd = `stty rows ${rows | 0} cols ${cols | 0} 2>/dev/null; exec ${argv.map(shq).join(" ")}`;
+  const child = spawn("script", ["-q", "-e", "-c", cmd, "/dev/null"], {
+    cwd,
+    env: { ...env, TERM: "xterm-256color" },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const dataCbs = [];
+  const exitCbs = [];
+  const emit = (s) => {
+    for (const cb of dataCbs) cb(s);
+  };
+  child.stdout.on("data", (d) => emit(d.toString("utf8")));
+  child.stderr.on("data", (d) => emit(d.toString("utf8")));
+  child.on("error", (e) => emit(`\r\n\x1b[31mgcl-ui: ${e.message}\x1b[0m\r\n`));
+  child.on("close", (code) => {
+    for (const cb of exitCbs) cb(code == null ? 0 : code);
+  });
+  return {
+    backend: "script",
+    pid: child.pid,
+    onData: (cb) => dataCbs.push(cb),
+    onExit: (cb) => exitCbs.push(cb),
+    write: (d) => {
+      try {
+        child.stdin.write(d);
+      } catch {}
+    },
+    resize: () => {}, // the script-owned PTY master isn't reachable for live resize
+    kill: (s) => {
+      try {
+        child.kill(s || "SIGTERM");
+      } catch {}
+    },
+  };
 }
 
 // Debug mode: we re-create the job's shell session ourselves (shell-executor
@@ -23,8 +112,8 @@ try {
 // inspectable and mutable. Step/breakpoint events ride on a private OSC escape
 // sequence (number 7770) that terminals ignore but the server parses.
 //
-// Two execution backends:
-//   - host:      a bash PTY on the machine running gcl-ui (rich readline).
+// Two execution targets:
+//   - host:      a bash shell on the machine running gcl-ui (rich readline).
 //   - container: the job's `image:` run via docker/podman. The project dir is
 //                bind-mounted at its real path, so the generated driver script
 //                (which lives under <cwd>/.gcl-ui/tmp) is already visible inside
@@ -33,10 +122,6 @@ try {
 //                it runs on minimal images (busybox/alpine/distroless-with-sh).
 
 const OSC_RE = /\x1b\]7770;([^\x07\x1b]*)(?:\x07|\x1b\\)/g;
-
-function shq(s) {
-  return "'" + String(s).replace(/'/g, "'\\''") + "'";
-}
 
 // Build the driver. It is written to parse cleanly under POSIX sh *and* bash,
 // and opportunistically uses bash readline (history, line editing) at runtime
@@ -147,17 +232,17 @@ export class DebugManager {
   }
 
   capabilities() {
-    return { containerRuntime: findContainerRuntime(), ptyAvailable: !!pty };
+    return { containerRuntime: findContainerRuntime(), ptyAvailable: debugAvailable };
   }
 
   // job: pipeline job object; breakpoints: array of step ids ("script:1")
   // container: run inside job.image via docker/podman when available
   start({ job, breakpoints = [], variables = {}, cols = 120, rows = 30, container = false }) {
-    if (!pty) {
+    if (!debugAvailable) {
       throw new Error(
-        "debug terminals need the native node-pty module, which isn't available in this build" +
+        "debug terminals need a PTY backend: either the native node-pty module" +
           (ptyError ? ` (${ptyError.message})` : "") +
-          ". Run gcl-ui from an npm install (npm i && node bin/gcl-ui.js) to use debug mode."
+          " or the util-linux `script` command, neither of which is available here."
       );
     }
     const steps = [];
@@ -199,7 +284,7 @@ export class DebugManager {
       mode: 0o755,
     });
 
-    let term;
+    let argv;
     let containerName = null;
     if (useContainer) {
       containerName = `gclui-debug-${id}`;
@@ -211,7 +296,8 @@ export class DebugManager {
       const bootstrap =
         'if command -v bash >/dev/null 2>&1; then exec bash "$0"; ' +
         'else printf \'\\033[2m[gcl-ui] bash not found in image — running under /bin/sh; bash-only script syntax may fail\\033[0m\\n\' >&2; exec /bin/sh "$0"; fi';
-      const args = [
+      argv = [
+        runtime,
         "run",
         "--rm",
         "-i",
@@ -231,22 +317,11 @@ export class DebugManager {
         bootstrap,
         scriptFile,
       ];
-      term = pty.spawn(runtime, args, {
-        name: "xterm-256color",
-        cols,
-        rows,
-        cwd: this.cwd,
-        env: { ...process.env, TERM: "xterm-256color" },
-      });
     } else {
-      term = pty.spawn("bash", [scriptFile], {
-        name: "xterm-256color",
-        cols,
-        rows,
-        cwd: this.cwd,
-        env: { ...process.env, TERM: "xterm-256color" },
-      });
+      argv = ["bash", scriptFile];
     }
+
+    const term = startPty(argv, { cwd: this.cwd, env: { ...process.env, TERM: "xterm-256color" }, cols, rows });
 
     const session = {
       id,
@@ -282,7 +357,7 @@ export class DebugManager {
       this.parseOsc(session, data);
       this.broadcast({ type: "debug.data", sessionId: id, data, offset });
     });
-    term.onExit(({ exitCode }) => {
+    term.onExit((exitCode) => {
       session.status = exitCode === 0 ? "finished" : exitCode === 130 ? "aborted" : "failed";
       session.exitCode = exitCode;
       session.pausedAt = null;

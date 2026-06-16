@@ -66,9 +66,12 @@ try {
       "bin/gcl-ui.js",
       "--compile",
       `--target=${target}`,
-      // vite is only used in the dev workflow; never bundle it into the binary
+      // vite is dev-only; node-pty is the native addon we deliberately avoid in
+      // the binary (it uses the util-linux `script` PTY backend instead).
       "--external",
       "vite",
+      "--external",
+      "node-pty",
       "--outfile",
       outfile,
     ]);

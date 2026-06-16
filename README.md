@@ -137,9 +137,12 @@ Runtime requirements of the binary:
 - **`gitlab-ci-local`** must be reachable — on `PATH`, or via `GCL_UI_GCL_BIN`
   (gcl-ui is a wrapper around it).
 - a **container runtime** (docker/podman) only if you use container debug.
-- **Debug terminals** rely on the native `node-pty` addon, which can't be
-  embedded into the single file; the binary detects this and disables debug
-  cleanly (everything else works). For debug, run gcl-ui from an `npm install`.
+- **Debug terminals** work in the binary on **Linux** via the util-linux
+  `script` command (present on essentially every Linux). The single file can't
+  embed the native `node-pty` addon, so the binary uses `script` as its PTY
+  backend instead — breakpoints, the live job shell and variable mutation all
+  work; only live terminal *resize* is unavailable (the initial size is honored).
+  Run from an `npm install` to get node-pty (with live resize).
 
 ## Development
 
