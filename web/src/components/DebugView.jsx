@@ -52,6 +52,7 @@ export default function DebugView() {
   const activeDebugId = useStore((s) => s.activeDebugId);
   const debugJobHint = useStore((s) => s.ui.debugJob);
   const containerRuntime = useStore((s) => s.debugCaps.containerRuntime);
+  const ptyAvailable = useStore((s) => s.debugCaps.ptyAvailable);
   const s = effectiveSettings({ settings });
 
   const debuggable = (pipeline?.jobs || []).filter((j) => j.script?.length || j.beforeScript?.length);
@@ -247,7 +248,12 @@ export default function DebugView() {
         ) : (
           <>
             {sessionForJob && <span className={"run-status st-" + (sessionForJob.status === "finished" ? "success" : "failed")}>{sessionForJob.status}</span>}
-            <button className="btn primary" onClick={start} disabled={!job}>
+            {!ptyAvailable && (
+              <span className="job-tag warn" title="This build lacks the native node-pty module. Run gcl-ui from an npm install to use debug terminals.">
+                ⚠ debug unavailable in this build
+              </span>
+            )}
+            <button className="btn primary" onClick={start} disabled={!job || !ptyAvailable}>
               ◉ start debug session
             </button>
           </>

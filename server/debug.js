@@ -2,8 +2,19 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
-import pty from "node-pty";
+import { createRequire } from "node:module";
 import { projectDir, findContainerRuntime } from "./util.js";
+
+// node-pty is a native addon and is only needed for debug terminals. Load it
+// lazily so the rest of gcl-ui (graph, runs, artifacts…) works even in a
+// packaged single-file binary where the native addon may be unavailable.
+let pty = null;
+let ptyError = null;
+try {
+  pty = createRequire(import.meta.url)("node-pty");
+} catch (e) {
+  ptyError = e;
+}
 
 // Debug mode: we re-create the job's shell session ourselves (shell-executor
 // semantics) so we can pause between script steps. At a breakpoint the very
@@ -136,12 +147,19 @@ export class DebugManager {
   }
 
   capabilities() {
-    return { containerRuntime: findContainerRuntime() };
+    return { containerRuntime: findContainerRuntime(), ptyAvailable: !!pty };
   }
 
   // job: pipeline job object; breakpoints: array of step ids ("script:1")
   // container: run inside job.image via docker/podman when available
   start({ job, breakpoints = [], variables = {}, cols = 120, rows = 30, container = false }) {
+    if (!pty) {
+      throw new Error(
+        "debug terminals need the native node-pty module, which isn't available in this build" +
+          (ptyError ? ` (${ptyError.message})` : "") +
+          ". Run gcl-ui from an npm install (npm i && node bin/gcl-ui.js) to use debug mode."
+      );
+    }
     const steps = [];
     for (const [section, list] of [
       ["before_script", job.beforeScript || []],

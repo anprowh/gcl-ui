@@ -72,10 +72,17 @@ function openBrowser(url) {
 
 const distDir = path.join(here, "..", "web", "dist");
 const hasDist = fs.existsSync(path.join(distDir, "index.html"));
+// in a packaged single-file binary the UI is embedded in-memory
+const { assets: embeddedAssets } = await import("../server/embedded-assets.js");
+const embeddedMode = Object.keys(embeddedAssets).length > 0;
 
-const { server } = createServer(cwd, { staticDir: !dev && hasDist ? distDir : null, viteDev: dev || !hasDist });
+const { server } = createServer(cwd, {
+  staticDir: !dev && hasDist ? distDir : null,
+  viteDev: dev || (!hasDist && !embeddedMode),
+});
 
-if (dev || !hasDist) {
+// only spin up Vite when there is no built/embedded UI (dev workflow)
+if (!embeddedMode && (dev || !hasDist)) {
   // fall back to vite middleware mode (requires devDependencies installed)
   try {
     const { createServer: createVite } = await import("vite");

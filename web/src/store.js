@@ -13,7 +13,7 @@ let state = {
   activeRunId: null,
   debugSessions: [],
   activeDebugId: null,
-  debugCaps: { containerRuntime: null },
+  debugCaps: { containerRuntime: null, ptyAvailable: true },
   artifacts: { root: "", jobs: {} },
   logs: { root: "", logs: [] },
   ui: {
@@ -111,13 +111,13 @@ export async function loadProject() {
     api("/api/project"),
     api("/api/variables"),
     api("/api/settings"),
-    api("/api/debug").catch(() => ({ containerRuntime: null })),
+    api("/api/debug").catch(() => ({ containerRuntime: null, ptyAvailable: true })),
   ]);
   setState({
     project,
     variables,
     settings: { ...DEFAULT_SETTINGS, ...settings },
-    debugCaps: { containerRuntime: debug.containerRuntime || null },
+    debugCaps: { containerRuntime: debug.containerRuntime || null, ptyAvailable: debug.ptyAvailable !== false },
   });
 }
 

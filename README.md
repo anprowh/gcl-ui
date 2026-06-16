@@ -116,6 +116,31 @@ it works on minimal images. Set `GCL_UI_CONTAINER_EXECUTABLE` to force a specifi
 
 Add `.gcl-ui/` to your project's `.gitignore`.
 
+## Single-file executable
+
+Build a self-contained binary that runs without Node, npm, or `node_modules`:
+
+```bash
+npm run build:exe          # binary for the current OS/arch → dist-bin/
+npm run build:exe:all      # linux, macOS, Windows (x64 + arm64)
+```
+
+This builds the frontend, embeds it in-memory, and compiles everything into one
+file with `bun --compile` (install bun from https://bun.sh). The binary serves
+the whole UI from memory — no files on disk.
+
+A ready-to-run **`build-executable` CI job** is included in `.gitlab-ci.yml`, so
+you can produce the binaries with gcl-ui itself (open gcl-ui in this repo and hit
+▶ on `build-executable`); the artifacts land in `dist-bin/`.
+
+Runtime requirements of the binary:
+- **`gitlab-ci-local`** must be reachable — on `PATH`, or via `GCL_UI_GCL_BIN`
+  (gcl-ui is a wrapper around it).
+- a **container runtime** (docker/podman) only if you use container debug.
+- **Debug terminals** rely on the native `node-pty` addon, which can't be
+  embedded into the single file; the binary detects this and disables debug
+  cleanly (everything else works). For debug, run gcl-ui from an `npm install`.
+
 ## Development
 
 ```bash

@@ -1,5 +1,6 @@
 node_modules/
 web/dist/
+dist-bin/
 .gcl-ui/
 .gitlab-ci-local/
 *.log

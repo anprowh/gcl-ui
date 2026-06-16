@@ -3,6 +3,19 @@ import fs from "node:fs";
 import path from "node:path";
 import { findGclBin, shellSplit, projectDir } from "./util.js";
 
+// gitlab-ci-local reads GCL_*-prefixed env vars as CLI options (e.g.
+// GCL_IGNORE_PREDEFINED_VARS). gcl-ui's own GCL_UI_* vars would therefore be
+// misread as unknown arguments and abort the run, so strip them out — while
+// leaving the user's legitimate GCL_* vars intact.
+function gclEnv(extra) {
+  const env = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.startsWith("GCL_UI_")) continue;
+    env[k] = v;
+  }
+  return { ...env, ...extra };
+}
+
 // Build the argv for a gitlab-ci-local invocation from structured options.
 export function buildArgs(opts = {}) {
   const args = [];
@@ -35,7 +48,7 @@ export function gclCapture(cwd, args, { timeout = 120_000 } = {}) {
     const bin = findGclBin();
     const child = spawn(bin, args, {
       cwd,
-      env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
+      env: gclEnv({ FORCE_COLOR: "0", NO_COLOR: "1" }),
       timeout,
     });
     let stdout = "";
@@ -53,7 +66,7 @@ export function gclSpawn(cwd, args) {
   const bin = findGclBin();
   return spawn(bin, args, {
     cwd,
-    env: { ...process.env, FORCE_COLOR: "1" },
+    env: gclEnv({ FORCE_COLOR: "1" }),
     detached: true,
   });
 }
