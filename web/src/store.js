@@ -23,6 +23,7 @@ let state = {
     dockOpen: true,
     outputMode: "combined", // combined | split | raw
     rawOutputOnly: false, // raw mode: show only program stdout (drop $ commands & meta)
+    outputFocusJob: null, // when set, the Output tab filters to this job (one-shot)
     toast: null,
   },
   wsConnected: false,
@@ -429,6 +430,35 @@ export function selectJob(name) {
 
 export function setDockTab(tab) {
   setState({ ui: { ...state.ui, dockTab: tab, dockOpen: true } });
+}
+
+// Latest known status per job across all runs: the most recent run that
+// actually contains a job wins, so jobs that weren't part of the current run
+// keep the status from whenever they last ran. The active run takes precedence
+// for the jobs it contains (honoring an explicit run selection).
+export function mergedRunStatus(runs, activeRun) {
+  const jobs = {};
+  const childJobs = {};
+  const ordered = [...runs].sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+  const apply = (r) => {
+    for (const [n, st] of Object.entries(r.jobs || {})) jobs[n] = st;
+    for (const [t, kids] of Object.entries(r.childJobs || {})) childJobs[t] = { ...(childJobs[t] || {}), ...kids };
+  };
+  for (const r of ordered) apply(r);
+  if (activeRun) apply(activeRun);
+  return { jobs, childJobs };
+}
+
+// Jump to the Output tab focused on one job, picking the most recent run that
+// actually ran it.
+export function viewJobOutput(jobName) {
+  const r = [...state.runs]
+    .filter((run) => run.jobs?.[jobName] || Object.values(run.childJobs || {}).some((k) => k[jobName]))
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+  setState((s) => ({
+    activeRunId: r?.id ?? s.activeRunId,
+    ui: { ...s.ui, dockTab: "output", dockOpen: true, outputFocusJob: jobName },
+  }));
 }
 
 // ---- multi-select for batch runs ---------------------------------------------

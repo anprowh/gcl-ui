@@ -80,6 +80,7 @@ export default function OutputView() {
 
   const mode = useStore((s) => s.ui.outputMode);
   const rawOutputOnly = useStore((s) => s.ui.rawOutputOnly);
+  const outputFocusJob = useStore((s) => s.ui.outputFocusJob);
   const split = mode === "split";
   const raw = mode === "raw";
 
@@ -93,6 +94,20 @@ export default function OutputView() {
       refreshRunLines(run.id);
     }
   }, [run?.id]);
+
+  // "View output" from the Job tab focuses one job here (one-shot)
+  useEffect(() => {
+    if (outputFocusJob == null) return;
+    setJobFilter(outputFocusJob);
+    setState((s) => ({
+      ui: {
+        ...s.ui,
+        outputFocusJob: null,
+        // the per-job filter is a no-op in split mode, so fall back to combined
+        outputMode: s.ui.outputMode === "split" ? "combined" : s.ui.outputMode,
+      },
+    }));
+  }, [outputFocusJob]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const matchesSearch = (l) => !search || stripAnsi(l.raw).toLowerCase().includes(search.toLowerCase());
 

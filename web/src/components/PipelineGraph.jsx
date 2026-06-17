@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { useStore, selectJob, startRun, runChildPipeline, toggleSelect } from "../store.js";
+import { useStore, selectJob, startRun, runChildPipeline, toggleSelect, mergedRunStatus } from "../store.js";
 
 const COL_W = 264;
 const CARD_W = 228;
@@ -17,10 +17,6 @@ export const STATUS_ICONS = {
   cancelled: "⊘",
 };
 
-export function statusOf(run, jobName) {
-  return run?.jobs?.[jobName]?.status || null;
-}
-
 export default function PipelineGraph({ model = null, run = undefined, compact = false, onSelect = null }) {
   const globalPipeline = useStore((s) => s.pipeline);
   const runs = useStore((s) => s.runs);
@@ -31,6 +27,17 @@ export default function PipelineGraph({ model = null, run = undefined, compact =
 
   const pipeline = model || globalPipeline;
   const activeRun = run !== undefined ? run : runs.find((r) => r.id === activeRunId);
+
+  // For the main graph (no explicit run prop) keep the latest status per job
+  // across runs, so a single-job run doesn't blank out everything else. When a
+  // specific run is passed (e.g. the child-pipeline graph) show just that run.
+  const eff = useMemo(
+    () =>
+      run !== undefined
+        ? { jobs: activeRun?.jobs || {}, childJobs: activeRun?.childJobs || {} }
+        : mergedRunStatus(runs, activeRun),
+    [run, runs, activeRun]
+  );
 
   const layout = useMemo(() => {
     if (!pipeline?.jobs?.length) return null;
@@ -138,11 +145,11 @@ export default function PipelineGraph({ model = null, run = undefined, compact =
           </div>
         ))}
         {[...layout.pos.values()].map(({ x, y, job }) => {
-          const st = statusOf(activeRun, job.name);
+          const st = eff.jobs[job.name]?.status || null;
           const never = job.when === "never";
           const manual = job.when === "manual";
           const dim = related && !related.has(job.name);
-          const childStates = activeRun?.childJobs?.[job.name];
+          const childStates = eff.childJobs[job.name];
           const checked = selection.includes(job.name);
           return (
             <div
@@ -187,8 +194,8 @@ export default function PipelineGraph({ model = null, run = undefined, compact =
                   {never && <span className="job-tag never">rules: never</span>}
                   {manual && <span className="job-tag manual">manual</span>}
                   {job.allowFailure && <span className="job-tag allow">allow failure</span>}
-                  {activeRun?.jobs?.[job.name]?.duration && (
-                    <span className="job-tag time">{activeRun.jobs[job.name].duration}</span>
+                  {eff.jobs[job.name]?.duration && (
+                    <span className="job-tag time">{eff.jobs[job.name].duration}</span>
                   )}
                   {childStates && (
                     <span className="job-tag child-sum">

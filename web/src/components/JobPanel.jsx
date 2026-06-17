@@ -10,6 +10,8 @@ import {
   setState,
   getState,
   loadChildPipeline,
+  mergedRunStatus,
+  viewJobOutput,
 } from "../store.js";
 import { explainRules } from "../lib/rules.js";
 import { highlightLine } from "../lib/highlight.js";
@@ -83,7 +85,11 @@ export default function JobPanel() {
     );
   }
 
-  const st = activeRun?.jobs?.[job.name]?.status;
+  // latest known status across runs, so it persists when the job wasn't rerun
+  const merged = mergedRunStatus(runs, activeRun);
+  const st = merged.jobs[job.name]?.status;
+  // has this job ever produced output we can show?
+  const hasRun = runs.some((r) => r.jobs?.[job.name] || Object.values(r.childJobs || {}).some((k) => k[job.name]));
   const never = job.when === "never";
   const ruleInfo = explainRules(job.rules, varsForRules);
   const logEntry = logs.logs.find((l) => l.job === job.name);
@@ -152,6 +158,15 @@ export default function JobPanel() {
               ◉ Debug
             </button>
           ) : null}
+          {hasRun && (
+            <button
+              className="btn"
+              title="Show this job's output in the Output tab"
+              onClick={() => viewJobOutput(job.name)}
+            >
+              ≣ View output
+            </button>
+          )}
           <button className="btn" title="Copy the equivalent CLI command" onClick={() => copyText(cliCmd, "Command")}>
             ⧉ CLI
           </button>
