@@ -22,6 +22,7 @@ export async function getPipeline(cwd, opts = {}) {
     includes: [],
     inputSpecs: [],
     variableSpecs: [],
+    rawTriggers: {},
     expandedYaml: "",
     scriptMap: {},
   };
@@ -102,7 +103,7 @@ export async function getPipeline(cwd, opts = {}) {
       afterScript: toLines(exp.after_script),
       variables: exp.variables || {},
       artifacts: exp.artifacts || null,
-      trigger: normalizeTrigger(exp.trigger),
+      trigger: normalizeTrigger(exp.trigger) || result.rawTriggers[j.name] || null,
       environment: typeof exp.environment === "string" ? exp.environment : exp.environment?.name || null,
     };
   });
@@ -183,6 +184,13 @@ function extractError(text) {
   return (interesting.length ? interesting : lines).slice(0, 25).join("\n") || "gitlab-ci-local failed";
 }
 
+// GitLab CI top-level keys that are not jobs (so we don't mistake them for
+// jobs when scanning the raw file for per-job triggers).
+const RESERVED_TOP_KEYS = new Set([
+  "stages", "variables", "include", "default", "workflow", "spec",
+  "image", "services", "cache", "before_script", "after_script", "pages",
+]);
+
 // Parse the raw ci file for things the expanded view loses:
 // spec.inputs (GitLab inputs header), variable metadata, include entries.
 function analyzeRawFile(text, result) {
@@ -200,6 +208,18 @@ function analyzeRawFile(text, result) {
       continue;
     }
     if (!body || typeof body !== "object") continue;
+
+    // Per-job trigger, straight from the raw file. The `trigger` shown in the
+    // model is normally taken from `gcl --preview`, but if the preview fails
+    // or its YAML won't parse, every job loses its trigger and the UI then
+    // tries to run a trigger job by name (which gcl rejects). This is the
+    // fallback so trigger jobs stay recognizable regardless of the preview.
+    for (const [name, val] of Object.entries(body)) {
+      if (RESERVED_TOP_KEYS.has(name)) continue;
+      if (val && typeof val === "object" && val.trigger) {
+        result.rawTriggers[name] = normalizeTrigger(val.trigger);
+      }
+    }
 
     if (body.spec?.inputs && typeof body.spec.inputs === "object") {
       for (const [name, raw] of Object.entries(body.spec.inputs)) {
