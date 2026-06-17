@@ -230,14 +230,29 @@ export function cancelRun(id) {
 
 // Trigger jobs can't be run by name: `gcl <trigger-job>` forwards the --job
 // filter into the downstream pipeline, which has no job by that name ("…
-// could not be found"). Instead run the generated child config directly, the
-// same way the "Run child directly" button does.
+// could not be found"). Run the generated child config directly instead.
+// When the child config comes from an artifact that hasn't been produced yet
+// the child file doesn't exist ("<file> could not be found"), so fall back to
+// a full pipeline run — gcl produces the artifact and triggers the child
+// inline, which (unlike a named trigger-job run) works.
 export async function runChildPipeline(job, { parentRunId = null } = {}) {
   const inc = (job.trigger?.include || []).find((i) => i.local || (i.artifact && i.job));
   if (!inc) {
     toast(`${job.name}: no local/artifact child include to run`, "err");
     return null;
   }
+
+  if (inc.artifact) {
+    await loadArtifacts().catch(() => {});
+    const produced = (state.artifacts?.jobs?.[inc.job] || []).some(
+      (a) => a.type === "file" && a.path === inc.artifact
+    );
+    if (!produced) {
+      toast(`${inc.artifact} not produced yet — running the full pipeline to trigger ${job.name}`);
+      return startRun({ label: `pipeline → ${job.name}` });
+    }
+  }
+
   const file = inc.local ? inc.local : `.gitlab-ci-local/artifacts/${inc.job}/${inc.artifact}`;
   // load the child model so the run knows the child's job names (status + raw
   // log grouping); falls back gracefully if the config isn't available yet.
