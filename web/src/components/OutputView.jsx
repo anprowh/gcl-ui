@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useStore, setState, cancelRun, copyText, refreshRunLines } from "../store.js";
+import { useStore, setState, cancelRun, copyText, refreshRunLines, getFile } from "../store.js";
 import { ansiToSpans, stripAnsi } from "../lib/ansi.js";
 import { STATUS_ICONS } from "./PipelineGraph.jsx";
 
@@ -74,6 +74,8 @@ export default function OutputView() {
   const [jobFilter, setJobFilter] = useState(null);
   const [search, setSearch] = useState("");
   const [autoScroll, setAutoScroll] = useState(true);
+  const [rawLogs, setRawLogs] = useState({}); // job -> raw .log file contents (raw mode)
+  const [rawLoading, setRawLoading] = useState(false);
   const bodyRef = useRef(null);
 
   const mode = useStore((s) => s.ui.outputMode);
@@ -102,27 +104,85 @@ export default function OutputView() {
     return ls;
   }, [lines, jobFilter, search]);
 
-  // raw-mode text: the same lines with the "<job> " prefix (and gcl's $/>
-  // markers) removed, ANSI stripped — ready to copy/paste elsewhere.
+  // raw mode reads gcl's own per-job log files straight from
+  // .gitlab-ci-local/output/<job>.log — the real captured stdout/stderr, not
+  // our prefix-parsed reconstruction of the streamed pipeline log.
+  const logTargets = useMemo(() => {
+    if (!run) return [];
+    const names = [];
+    if (jobFilter) {
+      // a chip filter is either a top-level job or a child-pipeline group
+      if (run.childJobs?.[jobFilter]) names.push(...Object.keys(run.childJobs[jobFilter]));
+      else names.push(jobFilter);
+    } else {
+      names.push(...Object.keys(run.jobs || {}));
+      for (const t of Object.keys(run.childJobs || {})) names.push(...Object.keys(run.childJobs[t] || {}));
+    }
+    return [...new Set(names)];
+  }, [run, jobFilter]);
+
+  // a cheap signature of job states so we refetch logs as jobs finish
+  const logKey = useMemo(() => {
+    if (!run) return "";
+    const parts = [run.status];
+    for (const [n, s] of Object.entries(run.jobs || {})) parts.push(`${n}:${s.status}`);
+    for (const t of Object.keys(run.childJobs || {}))
+      for (const [n, s] of Object.entries(run.childJobs[t] || {})) parts.push(`${t}/${n}:${s.status}`);
+    return parts.join("|");
+  }, [run]);
+
+  useEffect(() => {
+    if (!raw || !run || logTargets.length === 0) {
+      setRawLogs({});
+      return;
+    }
+    let cancelled = false;
+    const load = async () => {
+      setRawLoading(true);
+      const entries = await Promise.all(
+        logTargets.map(async (name) => {
+          try {
+            const d = await getFile("output", name + ".log");
+            return [name, d.content ?? ""];
+          } catch {
+            return [name, null]; // log not written yet (job hasn't run)
+          }
+        })
+      );
+      if (!cancelled) {
+        setRawLogs(Object.fromEntries(entries));
+        setRawLoading(false);
+      }
+    };
+    load();
+    // while the run is live the on-disk logs keep growing — poll for updates
+    const running = run.status === "running" || run.status === "cancelling";
+    const timer = running ? setInterval(load, 2000) : null;
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+    };
+  }, [raw, run?.id, jobFilter, logKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // raw-mode text: concatenated raw job logs, ANSI stripped, ready to copy.
   const rawText = useMemo(() => {
     if (!raw) return "";
+    const multi = logTargets.length > 1;
+    const term = search.toLowerCase();
     const out = [];
-    for (const l of filtered) {
-      const payload = l.payload != null ? stripAnsi(l.payload) : null;
-      if (l.kind === "out") {
-        out.push(payload != null ? payload.replace(/^> ?/, "") : stripAnsi(l.raw));
-      } else if (rawOutputOnly) {
-        continue; // output-only: skip commands, meta, PASS/FAIL, banners
-      } else if (l.kind === "cmd" || l.kind === "starting" || l.kind === "finished" || l.kind === "artifacts" || l.kind === "job-meta") {
-        out.push(payload != null ? payload : stripAnsi(l.raw));
-      } else if (l.kind === "pass" || l.kind === "fail") {
-        out.push(`${l.kind.toUpperCase()} ${l.job || ""}`.trim());
-      } else {
-        out.push(stripAnsi(l.raw)); // pipeline meta (no job prefix anyway)
-      }
+    for (const name of logTargets) {
+      const content = rawLogs[name];
+      if (content == null) continue;
+      let lines = stripAnsi(content).split("\n");
+      if (lines.length && lines[lines.length - 1] === "") lines.pop();
+      if (rawOutputOnly) lines = lines.filter((l) => !/^\s*\$ /.test(l)); // drop command echoes
+      if (search) lines = lines.filter((l) => l.toLowerCase().includes(term));
+      if (lines.length === 0) continue;
+      if (multi) out.push(`===== ${name} =====`);
+      out.push(...lines);
     }
     return out.join("\n");
-  }, [raw, rawOutputOnly, filtered]);
+  }, [raw, rawLogs, rawOutputOnly, search, logTargets]);
 
   // split-mode buckets: one per top-level job, one per child-pipeline group
   const panes = useMemo(() => {
@@ -204,7 +264,7 @@ export default function OutputView() {
           <button className={"seg" + (mode === "split" ? " active" : "")} onClick={() => setState((s) => ({ ui: { ...s.ui, outputMode: "split" } }))}>
             ▦ per-job
           </button>
-          <button className={"seg" + (mode === "raw" ? " active" : "")} onClick={() => setState((s) => ({ ui: { ...s.ui, outputMode: "raw" } }))} title="Plain text with the job-name prefix removed — easy to copy">
+          <button className={"seg" + (mode === "raw" ? " active" : "")} onClick={() => setState((s) => ({ ui: { ...s.ui, outputMode: "raw" } }))} title="Raw per-job logs read straight from .gitlab-ci-local/output/<job>.log — easy to copy">
             ⌁ raw
           </button>
         </div>
@@ -241,7 +301,7 @@ export default function OutputView() {
         />
         {raw && (
           <>
-            <label className="raw-only-toggle" title="Show only program output (drop $ commands, PASS/FAIL and gcl banners)">
+            <label className="raw-only-toggle" title="Show only program output (drop the $ command echoes)">
               <input
                 type="checkbox"
                 checked={rawOutputOnly}
@@ -271,7 +331,7 @@ export default function OutputView() {
           readOnly
           spellCheck={false}
           wrap="off"
-          value={rawText || (running ? "waiting for output…" : "no output")}
+          value={rawText || (rawLoading ? "loading job logs…" : running ? "waiting for output…" : "no output")}
           onFocus={(e) => e.target.select()}
         />
       ) : split ? (
