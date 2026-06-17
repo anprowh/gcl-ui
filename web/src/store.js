@@ -266,7 +266,9 @@ export async function runChildPipeline(job, { parentRunId = null } = {}) {
     overrides: {
       needs: false,
       onlyNeeds: false,
-      stateDir: `.gcl-ui/child-state/${job.name}`,
+      // run in the default .gitlab-ci-local state dir (not an isolated one) so
+      // the child's logs and artifacts land where the Artifacts/logs tabs and
+      // the raw output look — same place inline-triggered child jobs write to.
       ...(childModel && !childModel.error ? { knownJobs: childModel.jobs.map((j) => j.name) } : {}),
     },
   });

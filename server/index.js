@@ -126,7 +126,13 @@ export function createServer(cwd, { staticDir = null, viteDev = false } = {}) {
       if (!job || /[\\/]|\.\./.test(job)) return fail(res, "bad job name", 400);
       const stateDir = run.opts?.stateDir || ".gitlab-ci-local";
       const outDir = path.resolve(cwd, stateDir, "output");
-      const full = path.resolve(outDir, job + ".log");
+      // gcl names log files after a "safe" form of the job name: every run of
+      // characters outside [A-Za-z0-9_-] is base64-encoded (padding stripped),
+      // e.g. "build [x86_64]" -> "buildIFsx86_64XQ.log". Match that, but fall
+      // back to the raw name for older/other layouts.
+      const safe = job.replace(/[^\w-]+/g, (u) => Buffer.from(u, "utf8").toString("base64").replace(/=+$/, ""));
+      let full = path.resolve(outDir, safe + ".log");
+      if (!fs.existsSync(full)) full = path.resolve(outDir, job + ".log");
       if (full !== outDir && !full.startsWith(outDir + path.sep)) return fail(res, "path escapes root", 400);
       if (!fs.existsSync(full)) return ok(res, { job, content: "", size: 0, missing: true });
       const st = fs.statSync(full);
