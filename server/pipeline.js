@@ -63,9 +63,7 @@ export async function getPipeline(cwd, opts = {}) {
 
   let listed = [];
   try {
-    // stdout may contain warnings before the JSON array
-    const start = list.stdout.indexOf("[");
-    listed = JSON.parse(list.stdout.slice(start));
+    listed = parseListJson(list.stdout);
   } catch (e) {
     result.error = `Failed to parse gcl --list-json output: ${e.message}`;
     return result;
@@ -115,6 +113,48 @@ export async function getPipeline(cwd, opts = {}) {
   for (const s of seen) if (!result.stages.includes(s)) result.stages.push(s);
 
   return result;
+}
+
+// gcl prints warnings to stdout before the --list-json array, and those
+// warnings can themselves contain "[" (e.g. "Avoid overriding predefined
+// variables ... [CI_REGISTRY] ..." when you override CI_REGISTRY). Slicing
+// from the first "[" then breaks JSON.parse, so instead scan every "[" and
+// return the first one that parses as a balanced JSON array.
+function parseListJson(stdout) {
+  for (let i = stdout.indexOf("["); i !== -1; i = stdout.indexOf("[", i + 1)) {
+    const slice = balancedSlice(stdout, i);
+    if (!slice) continue;
+    try {
+      const v = JSON.parse(slice);
+      if (Array.isArray(v)) return v;
+    } catch {
+      /* this "[" wasn't the JSON array — keep scanning */
+    }
+  }
+  throw new Error("no JSON array found in output");
+}
+
+// Return the substring from `start` (a "[" or "{") to its matching close
+// bracket, honoring strings and escapes, or null if it never balances.
+function balancedSlice(s, start) {
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const c = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') {
+      inStr = true;
+    } else if (c === "[" || c === "{") {
+      depth++;
+    } else if (c === "]" || c === "}") {
+      if (--depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
 }
 
 function toLines(script) {

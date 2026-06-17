@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import {
   useStore,
   startRun,
+  runChildPipeline,
   copyText,
   effectiveSettings,
   selectJob,
@@ -91,7 +92,7 @@ export default function JobPanel() {
     "gitlab-ci-local " +
     [job.name.includes(" ") ? `"${job.name}"` : job.name, s.needs ? "--needs" : "", s.extraFlags].filter(Boolean).join(" ");
 
-  const triggerIncludes = (job.trigger?.include || []).filter((i) => i.artifact);
+  const triggerIncludes = (job.trigger?.include || []).filter((i) => i.artifact || i.local);
 
   return (
     <div className="job-panel">
@@ -112,21 +113,33 @@ export default function JobPanel() {
           {job.description && <div className="job-desc">{job.description}</div>}
         </div>
         <div className="job-actions">
-          <button
-            className={"btn primary" + (never ? " warn" : "")}
-            title={never ? "Rules say never — this run forces the job (gcl runs explicitly named jobs regardless of rules)" : "Run this job" + (s.needs ? " and its needs" : "")}
-            onClick={() => startRun({ jobs: [job.name], label: job.name + (never ? " (forced)" : "") })}
-          >
-            {never ? "⚡ Force run" : "▶ Run"}
-            {s.needs && (job.needs || []).length ? " +needs" : ""}
-          </button>
-          <button
-            className="btn"
-            title="Run only this job, ignoring needs"
-            onClick={() => startRun({ jobs: [job.name], label: job.name, overrides: { needs: false, onlyNeeds: false } })}
-          >
-            ▶ only this
-          </button>
+          {job.trigger ? (
+            <button
+              className="btn primary"
+              title="Run this job's child pipeline directly (gcl can't run a trigger job by name)"
+              onClick={() => runChildPipeline(job, { parentRunId: activeRunId })}
+            >
+              ▶ Run child
+            </button>
+          ) : (
+            <>
+              <button
+                className={"btn primary" + (never ? " warn" : "")}
+                title={never ? "Rules say never — this run forces the job (gcl runs explicitly named jobs regardless of rules)" : "Run this job" + (s.needs ? " and its needs" : "")}
+                onClick={() => startRun({ jobs: [job.name], label: job.name + (never ? " (forced)" : "") })}
+              >
+                {never ? "⚡ Force run" : "▶ Run"}
+                {s.needs && (job.needs || []).length ? " +needs" : ""}
+              </button>
+              <button
+                className="btn"
+                title="Run only this job, ignoring needs"
+                onClick={() => startRun({ jobs: [job.name], label: job.name, overrides: { needs: false, onlyNeeds: false } })}
+              >
+                ▶ only this
+              </button>
+            </>
+          )}
           {(job.script?.length || job.beforeScript?.length) ? (
             <button
               className="btn debug"
@@ -216,15 +229,23 @@ export default function JobPanel() {
         <div className="job-section">
           <div className="job-section-title">Triggered child pipeline</div>
           {triggerIncludes.map((inc, i) => {
-            const file = `.gitlab-ci-local/artifacts/${inc.job}/${inc.artifact}`;
+            const file = inc.local ? inc.local : `.gitlab-ci-local/artifacts/${inc.job}/${inc.artifact}`;
             const childModel = childPipelines[job.name];
             return (
               <div key={i} className="trigger-block">
                 <div className="trigger-info">
-                  from artifact <code>{inc.artifact}</code> of job{" "}
-                  <a className="job-link" onClick={() => selectJob(inc.job)}>
-                    {inc.job}
-                  </a>
+                  {inc.local ? (
+                    <>
+                      from local file <code>{inc.local}</code>
+                    </>
+                  ) : (
+                    <>
+                      from artifact <code>{inc.artifact}</code> of job{" "}
+                      <a className="job-link" onClick={() => selectJob(inc.job)}>
+                        {inc.job}
+                      </a>
+                    </>
+                  )}
                 </div>
                 <div className="chip-row">
                   <button
@@ -236,23 +257,12 @@ export default function JobPanel() {
                   </button>
                   <button
                     className="btn"
-                    title={`Run the generated child pipeline directly (gcl --file ${file}); requires ${inc.job} to have produced the artifact`}
-                    onClick={() =>
-                      startRun({
-                        label: `child of ${job.name}`,
-                        file,
-                        triggerJob: job.name,
-                        parentRunId: activeRunId,
-                        overrides: {
-                          needs: false,
-                          onlyNeeds: false,
-                          stateDir: `.gcl-ui/child-state/${job.name}`,
-                          ...(childModel && !childModel.error
-                            ? { knownJobs: childModel.jobs.map((j) => j.name) }
-                            : {}),
-                        },
-                      })
+                    title={
+                      inc.local
+                        ? `Run the child pipeline directly (gcl --file ${file})`
+                        : `Run the generated child pipeline directly (gcl --file ${file}); requires ${inc.job} to have produced the artifact`
                     }
+                    onClick={() => runChildPipeline(job, { parentRunId: activeRunId })}
                   >
                     ▶ Run child directly
                   </button>
@@ -272,7 +282,11 @@ export default function JobPanel() {
                   </div>
                 )}
                 {childOpen && childModel?.error && (
-                  <div className="muted small">child pipeline not parseable yet — run “{inc.job}” first to produce {inc.artifact}</div>
+                  <div className="muted small">
+                    {inc.local
+                      ? `child pipeline not parseable: ${childModel.error}`
+                      : `child pipeline not parseable yet — run “${inc.job}” first to produce ${inc.artifact}`}
+                  </div>
                 )}
               </div>
             );

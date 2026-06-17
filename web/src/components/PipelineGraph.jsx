@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { useStore, selectJob, startRun, toggleSelect } from "../store.js";
+import { useStore, selectJob, startRun, runChildPipeline, toggleSelect } from "../store.js";
 
 const COL_W = 264;
 const CARD_W = 228;
@@ -202,15 +202,18 @@ export default function PipelineGraph({ model = null, run = undefined, compact =
                 <button
                   className={"job-play" + (never ? " force" : "")}
                   title={
-                    never
-                      ? "Rules are not satisfied — running it from here forces it (gcl runs explicitly named jobs)"
-                      : manual
-                        ? "Run this manual job"
-                        : "Run this job"
+                    job.trigger
+                      ? "Run this job's child pipeline directly"
+                      : never
+                        ? "Rules are not satisfied — running it from here forces it (gcl runs explicitly named jobs)"
+                        : manual
+                          ? "Run this manual job"
+                          : "Run this job"
                   }
                   onClick={(e) => {
                     e.stopPropagation();
-                    startRun({ jobs: [job.name], label: job.name + (never ? " (forced)" : "") });
+                    if (job.trigger) runChildPipeline(job, { parentRunId: activeRunId });
+                    else startRun({ jobs: [job.name], label: job.name + (never ? " (forced)" : "") });
                   }}
                 >
                   {never ? "⚡" : "▶"}

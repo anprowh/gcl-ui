@@ -181,8 +181,10 @@ export async function startRun({
   const p = state.pipeline;
   const knownJobs = p?.jobs?.map((j) => j.name) || [];
   let jobList = jobs;
-  if (!jobList && !stage && s.forceRules && p?.jobs) {
-    // force rules on a full pipeline run: name every job explicitly
+  if (!jobList && !stage && !file && s.forceRules && p?.jobs) {
+    // force rules on a full pipeline run: name every job explicitly.
+    // Skipped when `file` is set (e.g. a child-pipeline run) — the parent's
+    // job names don't exist in that file and gcl would reject them.
     jobList = p.jobs.filter((j) => !j.trigger).map((j) => j.name);
   }
   if (stage) overrides = { ...overrides, stage };
@@ -226,6 +228,35 @@ export function cancelRun(id) {
   return api(`/api/runs/${id}/cancel`, { method: "POST" }).catch((e) => toast(e.message, "err"));
 }
 
+// Trigger jobs can't be run by name: `gcl <trigger-job>` forwards the --job
+// filter into the downstream pipeline, which has no job by that name ("…
+// could not be found"). Instead run the generated child config directly, the
+// same way the "Run child directly" button does.
+export async function runChildPipeline(job, { parentRunId = null } = {}) {
+  const inc = (job.trigger?.include || []).find((i) => i.local || (i.artifact && i.job));
+  if (!inc) {
+    toast(`${job.name}: no local/artifact child include to run`, "err");
+    return null;
+  }
+  const file = inc.local ? inc.local : `.gitlab-ci-local/artifacts/${inc.job}/${inc.artifact}`;
+  // load the child model so the run knows the child's job names (status + raw
+  // log grouping); falls back gracefully if the config isn't available yet.
+  let childModel = state.childPipelines[job.name];
+  if (!childModel || childModel.error) childModel = await loadChildPipeline(job.name, file);
+  return startRun({
+    label: `child of ${job.name}`,
+    file,
+    triggerJob: job.name,
+    parentRunId,
+    overrides: {
+      needs: false,
+      onlyNeeds: false,
+      stateDir: `.gcl-ui/child-state/${job.name}`,
+      ...(childModel && !childModel.error ? { knownJobs: childModel.jobs.map((j) => j.name) } : {}),
+    },
+  });
+}
+
 // ---- debug --------------------------------------------------------------------
 export async function startDebug(job, breakpoints, { container = false, ...dims } = {}) {
   try {
@@ -259,6 +290,12 @@ export const debugApi = {
 
 export function getFile(base, path) {
   return api(`/api/file?base=${encodeURIComponent(base)}&path=${encodeURIComponent(path)}`);
+}
+
+// Raw per-job log for a run, read from that run's own output dir (which honors
+// the run's --state-dir, so child pipelines run separately resolve correctly).
+export function getRunJobLog(runId, job) {
+  return api(`/api/runs/${encodeURIComponent(runId)}/joblog?job=${encodeURIComponent(job)}`);
 }
 
 // ---- websocket ----------------------------------------------------------------

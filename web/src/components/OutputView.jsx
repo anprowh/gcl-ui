@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useStore, setState, cancelRun, copyText, refreshRunLines, getFile } from "../store.js";
+import { useStore, setState, cancelRun, copyText, refreshRunLines, getRunJobLog } from "../store.js";
 import { ansiToSpans, stripAnsi } from "../lib/ansi.js";
 import { STATUS_ICONS } from "./PipelineGraph.jsx";
 
@@ -142,8 +142,8 @@ export default function OutputView() {
       const entries = await Promise.all(
         logTargets.map(async (name) => {
           try {
-            const d = await getFile("output", name + ".log");
-            return [name, d.content ?? ""];
+            const d = await getRunJobLog(run.id, name);
+            return [name, d.missing ? null : d.content ?? ""];
           } catch {
             return [name, null]; // log not written yet (job hasn't run)
           }

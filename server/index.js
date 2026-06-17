@@ -115,6 +115,32 @@ export function createServer(cwd, { staticDir = null, viteDev = false } = {}) {
   });
   app.post("/api/runs/:id/cancel", (req, res) => ok(res, { cancelled: runs.cancel(req.params.id) }));
 
+  // Raw per-job log, read straight from gcl's own output file. A run may use a
+  // custom --state-dir (child pipelines run separately do), so the output dir
+  // is resolved per-run rather than from the fixed project .gitlab-ci-local.
+  app.get("/api/runs/:id/joblog", (req, res) => {
+    try {
+      const run = runs.get(req.params.id);
+      if (!run) return fail(res, "run not found", 404);
+      const job = String(req.query.job || "");
+      if (!job || /[\\/]|\.\./.test(job)) return fail(res, "bad job name", 400);
+      const stateDir = run.opts?.stateDir || ".gitlab-ci-local";
+      const outDir = path.resolve(cwd, stateDir, "output");
+      const full = path.resolve(outDir, job + ".log");
+      if (full !== outDir && !full.startsWith(outDir + path.sep)) return fail(res, "path escapes root", 400);
+      if (!fs.existsSync(full)) return ok(res, { job, content: "", size: 0, missing: true });
+      const st = fs.statSync(full);
+      const MAX = 4 * 1024 * 1024;
+      const fd = fs.openSync(full, "r");
+      const buf = Buffer.alloc(Math.min(st.size, MAX));
+      fs.readSync(fd, buf, 0, buf.length, 0);
+      fs.closeSync(fd);
+      ok(res, { job, path: full, size: st.size, truncated: st.size > MAX, content: buf.toString("utf8") });
+    } catch (e) {
+      fail(res, e, 400);
+    }
+  });
+
   // ---- artifacts / logs / files -------------------------------------------
   const ROOTS = () => ({
     artifacts: path.join(cwd, ".gitlab-ci-local", "artifacts"),
