@@ -38,7 +38,7 @@ export default function TopBar() {
   const pipeline = useStore((s) => s.pipeline);
   const loading = useStore((s) => s.pipelineLoading);
   const settingsRaw = useStore((s) => s.settings);
-  const wsConnected = useStore((s) => s.wsConnected);
+  const wsStatus = useStore((s) => s.wsStatus);
   const s = effectiveSettings({ settings: settingsRaw });
   const [showOptions, setShowOptions] = useState(false);
   const [showIncludes, setShowIncludes] = useState(false);
@@ -61,7 +61,10 @@ export default function TopBar() {
           {project.gclVersion && <span className="project-gcl">{project.gclVersion}</span>}
         </div>
       )}
-      <div className={"ws-dot" + (wsConnected ? " on" : "")} title={wsConnected ? "connected" : "reconnecting…"} />
+      <div
+        className={"ws-dot ws-" + wsStatus}
+        title={wsStatus === "connected" ? "connected" : wsStatus === "reconnecting" ? "reconnecting…" : "connecting…"}
+      />
 
       <div className="topbar-spacer" />
 
