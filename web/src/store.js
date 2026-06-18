@@ -26,7 +26,7 @@ let state = {
     outputFocusJob: null, // when set, the Output tab filters to this job (one-shot)
     toast: null,
   },
-  wsConnected: false,
+  wsStatus: "connecting", // "connecting" (never connected yet) | "connected" | "reconnecting"
 };
 
 const listeners = new Set();
@@ -328,13 +328,34 @@ export function wsSend(msg) {
   if (ws?.readyState === 1) ws.send(JSON.stringify(msg));
 }
 
+let wsRetry = 0;
+let wsEverConnected = false;
+let wsGraceTimer = null;
+
 export function connectWs() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => setState({ wsConnected: true });
+  ws.onopen = () => {
+    wsRetry = 0;
+    wsEverConnected = true;
+    clearTimeout(wsGraceTimer);
+    setState({ wsStatus: "connected" });
+  };
   ws.onclose = () => {
-    setState({ wsConnected: false });
-    setTimeout(connectWs, 1500);
+    const next = wsEverConnected ? "reconnecting" : "connecting";
+    // Don't flash a warning for momentary blips: if we were connected, give the
+    // immediate retry a short grace window to succeed before showing the state.
+    if (state.wsStatus === "connected") {
+      clearTimeout(wsGraceTimer);
+      wsGraceTimer = setTimeout(() => setState({ wsStatus: next }), 600);
+    } else {
+      setState({ wsStatus: next });
+    }
+    // Exponential backoff with a short first delay so the initial connection
+    // (e.g. page opened just as the server is starting up) settles quickly.
+    const delay = Math.min(300 * 2 ** wsRetry, 5000);
+    wsRetry++;
+    setTimeout(connectWs, delay);
   };
   ws.onmessage = (ev) => {
     let msg;
