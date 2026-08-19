@@ -16,7 +16,7 @@ function VarTable({ scope, list, fileHint }) {
     const next = data.map((r, j) => (j === i ? { ...r, ...patch } : r));
     setRows(next);
   };
-  const add = () => setRows([...data, { key: "", value: "", enabled: true }]);
+  const add = () => setRows([...data, { key: "", value: "", enabled: true, file: false }]);
   const remove = (i) => setRows(data.filter((_, j) => j !== i));
   const save = async () => {
     const cleaned = data.filter((r) => r.key.trim());
@@ -55,6 +55,9 @@ function VarTable({ scope, list, fileHint }) {
               <th style={{ width: 28 }} title="enabled"></th>
               <th>key</th>
               <th>value</th>
+              <th style={{ width: 34 }} title="file variable: value is stored in a temp file, the job sees the variable holding that file's path">
+                file
+              </th>
               <th style={{ width: 28 }}></th>
             </tr>
           </thead>
@@ -68,7 +71,26 @@ function VarTable({ scope, list, fileHint }) {
                   <input className="var-input key" value={r.key} placeholder="KEY" spellCheck={false} onChange={(e) => edit(i, { key: e.target.value })} />
                 </td>
                 <td>
-                  <input className="var-input" value={r.value} placeholder="value" spellCheck={false} onChange={(e) => edit(i, { value: e.target.value })} />
+                  {r.file ? (
+                    <textarea
+                      className="var-input file-content"
+                      value={r.value}
+                      placeholder="file content"
+                      spellCheck={false}
+                      rows={Math.min(8, Math.max(2, r.value.split("\n").length))}
+                      onChange={(e) => edit(i, { value: e.target.value })}
+                    />
+                  ) : (
+                    <input className="var-input" value={r.value} placeholder="value" spellCheck={false} onChange={(e) => edit(i, { value: e.target.value })} />
+                  )}
+                </td>
+                <td>
+                  <input
+                    type="checkbox"
+                    title="file variable"
+                    checked={r.file === true}
+                    onChange={(e) => edit(i, { file: e.target.checked })}
+                  />
                 </td>
                 <td>
                   <button className="icon-btn" title="remove" onClick={() => remove(i)}>
@@ -230,7 +252,9 @@ export default function VariablesView() {
         <VarTable scope="project" list={variables.project} fileHint={project ? `${project.projectDir}/variables.json` : ".gcl-ui/variables.json"} />
         <VarTable scope="global" list={variables.global} fileHint={project ? `${project.globalDir}/variables.json` : "~/.settings/gcl-ui/variables.json"} />
         <div className="muted small precedence-note">
-          Precedence: pipeline form &gt; project &gt; global. Everything is passed to gitlab-ci-local as <code>--variable KEY=value</code>.
+          Precedence: pipeline form &gt; project &gt; global. Plain variables are passed to gitlab-ci-local as <code>--variable KEY=value</code>; “file”
+          variables get GitLab file-variable semantics — the content is written to a temp file and the job sees the variable holding that file's
+          path.
         </div>
       </div>
     </div>

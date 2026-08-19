@@ -8,7 +8,7 @@ import { buildArgs, gclCapture, makeForcedIncludesFile } from "./gcl.js";
 //   - gcl --preview     → expanded YAML (includes/extends/!reference resolved)
 //   - the raw ci file   → inputs spec, variable metadata (description/options), include rules
 export async function getPipeline(cwd, opts = {}) {
-  const { variables = {}, inputs = {}, forceIncludes = false } = opts;
+  const { variables = {}, variablesFile = null, inputs = {}, forceIncludes = false } = opts;
   let file = opts.file || null;
 
   const result = {
@@ -50,7 +50,7 @@ export async function getPipeline(cwd, opts = {}) {
   }
   result.effectiveFile = file || ".gitlab-ci.yml";
 
-  const common = buildArgs({ variables, inputs, file });
+  const common = buildArgs({ variables, variablesFile, inputs, file });
 
   const [list, preview] = await Promise.all([
     gclCapture(cwd, ["--list-json", ...common]),

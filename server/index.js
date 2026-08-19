@@ -7,7 +7,16 @@ import { WebSocketServer } from "ws";
 import { getPipeline } from "./pipeline.js";
 import { RunManager } from "./runs.js";
 import { DebugManager } from "./debug.js";
-import { getVariables, setVariables, effectiveVariables, getSettings, setSettings } from "./variables.js";
+import {
+  getVariables,
+  setVariables,
+  effectiveVariableEntries,
+  splitVariableEntries,
+  materializeFileVariables,
+  getSettings,
+  setSettings,
+} from "./variables.js";
+import { makeVariablesFile } from "./gcl.js";
 import { findGclBin, isProbablyText, walkDir, GLOBAL_DIR, projectDir } from "./util.js";
 import { assets as embeddedAssets } from "./embedded-assets.js";
 
@@ -70,8 +79,9 @@ export function createServer(cwd, { staticDir = null, viteDev = false } = {}) {
   app.post("/api/pipeline", async (req, res) => {
     try {
       const { variables = {}, inputs = {}, forceIncludes = false, file = null } = req.body || {};
-      const effVars = effectiveVariables(cwd, variables);
-      const model = await getPipeline(cwd, { variables: effVars, inputs, forceIncludes, file });
+      const { plain, files } = splitVariableEntries(effectiveVariableEntries(cwd, variables));
+      const variablesFile = makeVariablesFile(cwd, files);
+      const model = await getPipeline(cwd, { variables: plain, variablesFile, inputs, forceIncludes, file });
       ok(res, model);
     } catch (e) {
       fail(res, e);
@@ -103,9 +113,11 @@ export function createServer(cwd, { staticDir = null, viteDev = false } = {}) {
     try {
       const body = req.body || {};
       const session = body.variables || {};
+      const { plain, files } = splitVariableEntries(effectiveVariableEntries(cwd, session));
       const opts = {
         ...body,
-        variables: effectiveVariables(cwd, session),
+        variables: plain,
+        variablesFile: makeVariablesFile(cwd, files),
       };
       const summary = await runs.start(opts, body.knownJobs || []);
       ok(res, summary);
@@ -237,7 +249,7 @@ export function createServer(cwd, { staticDir = null, viteDev = false } = {}) {
     try {
       const { job, breakpoints = [], variables = {}, cols, rows, container = false } = req.body || {};
       if (!job?.name) return fail(res, "job object required", 400);
-      const effVars = effectiveVariables(cwd, variables);
+      const effVars = materializeFileVariables(cwd, effectiveVariableEntries(cwd, variables));
       ok(res, debug.start({ job, breakpoints, variables: effVars, cols, rows, container }));
     } catch (e) {
       fail(res, e, 400);

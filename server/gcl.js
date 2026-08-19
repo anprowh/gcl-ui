@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import YAML from "yaml";
 import { findGclBin, shellSplit, projectDir } from "./util.js";
 
 // gitlab-ci-local reads GCL_*-prefixed env vars as CLI options (e.g.
@@ -29,6 +30,7 @@ export function buildArgs(opts = {}) {
     if (v !== "" && v !== null && v !== undefined) args.push("--input", `${k}=${v}`);
   }
   if (opts.file) args.push("--file", opts.file);
+  if (opts.variablesFile) args.push("--variables-file", opts.variablesFile);
   if (opts.stateDir) args.push("--state-dir", opts.stateDir);
   if (opts.noArtifactsToSource === false) args.push("--artifacts-to-source");
   if (opts.shellIsolation) args.push("--shell-isolation");
@@ -69,6 +71,34 @@ export function gclSpawn(cwd, args) {
     env: gclEnv({ FORCE_COLOR: "1" }),
     detached: true,
   });
+}
+
+// File-type variables travel via gcl's --variables-file (the CLI --variable
+// flag only makes plain variables). We generate a yaml file where each entry
+// is { type: file, values: { '*': content } } — gcl then writes the content
+// to a temp file and hands the job the path, i.e. GitLab file-variable
+// semantics. Passing --variables-file replaces gcl's default read of
+// <cwd>/.gitlab-ci-local-variables.yml, so an existing project variables file
+// is merged in first (our entries win on key clash). Returns the --variables-
+// file value (relative to cwd) or null when there are no file variables.
+export function makeVariablesFile(cwd, fileVars) {
+  if (!fileVars || Object.keys(fileVars).length === 0) return null;
+  const doc = {};
+  const existing = path.join(cwd, ".gitlab-ci-local-variables.yml");
+  if (fs.existsSync(existing)) {
+    try {
+      const parsed = YAML.parse(fs.readFileSync(existing, "utf8"));
+      if (parsed && typeof parsed === "object") Object.assign(doc, parsed);
+    } catch {}
+  }
+  for (const [k, content] of Object.entries(fileVars)) {
+    doc[k] = { type: "file", values: { "*": content } };
+  }
+  const outDir = path.join(projectDir(cwd), "tmp");
+  fs.mkdirSync(outDir, { recursive: true });
+  const out = path.join(outDir, "file-variables.gitlab-ci-local.yml");
+  fs.writeFileSync(out, YAML.stringify(doc));
+  return path.relative(cwd, out);
 }
 
 // If "force includes" is on we rewrite the root CI file with include rules
