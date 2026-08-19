@@ -1,32 +1,6 @@
 stages:
   - build
 
-# Build self-contained, single-file gcl-ui executables (one per OS/arch) with
-# bun --compile. The UI is embedded in-memory, so each binary runs with no files
-# on disk; it only needs `gitlab-ci-local` on PATH at runtime. You can run this
-# job locally with gcl-ui itself: `gcl-ui` → play ▶ on build-executable.
-build-executable:
-  stage: build
-  image: node:22-bookworm
-  variables:
-    BUN_INSTALL: "$CI_PROJECT_DIR/.bun"
-  before_script:
-    - curl -fsSL https://bun.sh/install | bash
-    - export PATH="$BUN_INSTALL/bin:$PATH"
-    - bun --version
-    - npm ci
-  script:
-    # cross-compile linux/macos/windows (x64 + arm64) into dist-bin/
-    - export PATH="$BUN_INSTALL/bin:$PATH"
-    - npm run build:exe:all
-    - ls -lh dist-bin/
-  artifacts:
-    name: "gcl-ui-binaries-$CI_COMMIT_SHORT_SHA"
-    paths:
-      - dist-bin/
-    expire_in: 30 days
-
-# Faster variant: only the runner's own platform.
 build-executable-host:
   stage: build
   image: node:22-bookworm
