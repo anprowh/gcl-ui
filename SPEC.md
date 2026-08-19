@@ -42,6 +42,8 @@ Web UI wrap gitlab-ci-local. Visualize pipeline, run jobs, inspect output/artifa
 - V8: SPA fallback (embedded + staticDir modes) never shadow `/api`, `/ws`, `/artifact`, `/joblog`.
 - V9: WS `hello` on connect carries current runs + debugSessions so late clients recover state.
 - V10: default bind 127.0.0.1 — server never exposed off-host unless `--host` given.
+- V11: user volumes pass verbatim to executor (`--volume` for gcl runs, `-v` for debug container); empty/whitespace entries dropped; run + debug always mount same list.
+- V12: effective volumes = global list ∪ project list (global first, exact-string dedupe); global persist `~/.settings/gcl-ui/settings.json`, project persist `<project>/.gcl-ui/settings.json`.
 
 ## §T tasks
 id|status|desc|cites
@@ -53,6 +55,9 @@ T5|.|test getPipeline model on sample .gitlab-ci.yml (stages, inputs, triggers)|
 T6|x|gitignore stray built binary `gcl-ui` in repo root|
 T7|x|support file-type variables (GitLab `variables: X: {file: true}` semantics; pass to gcl, editable in UI)|V2,I.api
 T8|x|full ignore of predefined vars: user-defined predefined vars inject warning text + `---` into `--preview` → Debug tab expanded YAML breaks, debug unusable. Sanitize preview / use GCL_IGNORE_PREDEFINED_VARS|I.api
+T9|.|volume support: `volumes` string array (`src:dst[:mode]`) in run opts → repeated `--volume` in buildArgs (`server/gcl.js`)|V11,I.api
+T10|.|volumes UI: editable list in TopBar run options, project + global scope tabs (like variables); project → settings.json, global → `~/.settings/gcl-ui/settings.json`|V12,I.api
+T11|.|debug container mount same `volumes` list (extra `-v` per entry, `server/debug.js` ~:307) — parity with run env|V11
 
 ## §B bugs
 id|date|cause|fix
