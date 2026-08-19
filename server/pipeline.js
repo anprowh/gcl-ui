@@ -70,7 +70,11 @@ export async function getPipeline(cwd, opts = {}) {
     return result;
   }
 
-  result.expandedYaml = preview.code === 0 ? preview.stdout.replace(/^---\n/, "") : "";
+  if (preview.code === 0) {
+    const { yaml, warnings } = sanitizePreview(preview.stdout);
+    result.expandedYaml = yaml;
+    result.warnings.push(...warnings);
+  }
 
   let expanded = {};
   if (result.expandedYaml) {
@@ -114,6 +118,23 @@ export async function getPipeline(cwd, opts = {}) {
   for (const s of seen) if (!result.stages.includes(s)) result.stages.push(s);
 
   return result;
+}
+
+// gcl --preview prints warnings to stdout ahead of the YAML document — e.g.
+// overriding a predefined variable emits a multi-line "WARN Avoid overriding
+// predefined variables ..." block plus suppression tips. The document itself
+// always starts at a bare "---" line, so slice from there; WARN lines from
+// the preamble are surfaced as pipeline warnings, tip lines dropped. Without
+// a marker the whole output is treated as YAML (older/clean gcl output).
+export function sanitizePreview(stdout) {
+  const m = /^---\r?\n/m.exec(stdout);
+  if (!m) return { yaml: stdout, warnings: [] };
+  const warnings = stdout
+    .slice(0, m.index)
+    .split("\n")
+    .filter((l) => /\bWARN\b/.test(l))
+    .map((l) => l.replace(/^\s*WARN\s*/, "").trim());
+  return { yaml: stdout.slice(m.index + m[0].length), warnings };
 }
 
 // gcl prints warnings to stdout before the --list-json array, and those
