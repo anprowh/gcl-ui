@@ -21,3 +21,14 @@ build-executable-host:
     paths:
       - dist-bin/
     expire_in: 7 days
+
+include:
+  - component: $CI_SERVER_FQDN/s3w/cicd/common/publish-sftp@2.0.0-alpha
+    inputs:
+      stage: "deploy"
+      allow_failure: false
+      required_artifacts: ["build-executable-host"]
+      server: "sftp://s3w.stc-spb.ru"
+      paths: |
+        dist-bin/gcl-ui-linux-x64:/storage/cicd/gcl-ui/
+      login: $SFTP_LOGIN
