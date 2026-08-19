@@ -4,3 +4,4 @@ dist-bin/
 .gcl-ui/
 .gitlab-ci-local/
 *.log
+/gcl-ui

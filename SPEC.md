@@ -50,7 +50,7 @@ T2|.|test effectiveVariables precedence + enabled toggle|V2
 T3|.|test path-escape guards + joblog safe-name base64 encode|V1,V4
 T4|.|test buildDriver output pass `sh -n` and `bash -n`|V7
 T5|.|test getPipeline model on sample .gitlab-ci.yml (stages, inputs, triggers)|I.api
-T6|.|gitignore stray built binary `gcl-ui` in repo root|
+T6|x|gitignore stray built binary `gcl-ui` in repo root|
 T7|x|support file-type variables (GitLab `variables: X: {file: true}` semantics; pass to gcl, editable in UI)|V2,I.api
 T8|.|full ignore of predefined vars: user-defined predefined vars inject warning text + `---` into `--preview` → Debug tab expanded YAML breaks, debug unusable. Sanitize preview / use GCL_IGNORE_PREDEFINED_VARS|I.api
 
